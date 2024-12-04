@@ -3,11 +3,12 @@ import { createChild } from "./db/child.ts";
 import { connectDB, disconnectDB } from "./db/client.ts";
 import { createMeasurement } from "./db/measurement.ts";
 import { createUser, getUserByEmail } from './db/user.ts'
+import { convertLbsToKg, convertImperialToMetric } from "./db/utils/convertMeasurement.ts";
 
 await connectDB()
 
 const corsHeader = {
-  "Access-Control-Allow-Origin": "https://localhost:3000",
+  "Access-Control-Allow-Origin": "http://localhost:3000",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Content-Type": "application/json"
@@ -17,11 +18,18 @@ const handler = async (req: Request): Promise<Response> => {
 const url = new URL(req.url);
 const pathname = url.pathname;
 
-console.log("Request Method:", req.method);
-console.log("Request URL:", req.url);
-console.log("Request Headers:", [...req.headers]);
-
  console.log(`Received request: ${req.url}`);
+
+   // Check if the request method is OPTIONS (preflight)
+   if (req.method === "OPTIONS") {
+    const headers = new Headers();
+    headers.set("Access-Control-Allow-Origin", "http://localhost:3000");
+    headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Access-Control-Max-Age", "86400"); // Cache preflight response for 1 day
+
+    return new Response(null, { status: 204, headers });
+  }
 
   if (pathname === "/") {
     return new Response("Hello from Deno server!", {
@@ -59,10 +67,11 @@ console.log("Request Headers:", [...req.headers]);
             return new Response("Missing required fields", { status: 400 });
         }
         const user = await getUserByEmail(email);
-        return new Response(JSON.stringify(user), {
+        const retrievedUser = new Response(JSON.stringify(user), {
           headers: corsHeader,
           status: 201,
         });
+        return retrievedUser
     } catch (error) {
       console.error("Error retrieve user:", error);
       return new Response("Failed to retrieve user", { status: 500 });
@@ -95,14 +104,24 @@ console.log("Request Headers:", [...req.headers]);
 
   if (pathname === "/measurement" && req.method === "POST") {
     try {
+      let convertedWeight;
+      let convertedHeight;
       const body = await req.json();
-      const { child_id, date, weight, height } = body;
+      const { child_id, date, weight, weight_unit, height, height_unit } = body;
 
       if (!child_id || !date || (!weight && !height)) {
           return new Response("Missing required fields", { status: 400 });
       }
 
-      const newChild = await createMeasurement(child_id, date, weight, height);
+      if (weight && weight_unit !== "kg") {
+        convertedWeight = convertLbsToKg(weight)
+      }
+
+      if (height && height_unit !== "metric") {
+        convertedHeight = convertImperialToMetric(height)
+      }
+
+      const newChild = await createMeasurement(child_id, date, weight ?? convertedWeight, height ?? convertedHeight);
       return new Response(JSON.stringify(newChild), {
         headers: corsHeader,
         status: 201,
