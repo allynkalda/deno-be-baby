@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std/http/server.ts";
-import { createChild } from "./db/child.ts";
+import { createChild, getChildByParentId } from "./db/child.ts";
 import { connectDB, disconnectDB } from "./db/client.ts";
-import { createMeasurement } from "./db/measurement.ts";
+import { createMeasurement, getWeight, getHeight } from "./db/measurement.ts";
 import { createUser, getUserByEmail } from './db/user.ts'
 import { convertLbsToKg, convertImperialToMetric } from "./db/utils/convertMeasurement.ts";
 
@@ -67,38 +67,52 @@ const pathname = url.pathname;
             return new Response("Missing required fields", { status: 400 });
         }
         const user = await getUserByEmail(email);
-        const retrievedUser = new Response(JSON.stringify(user), {
+        const retrievedUser = new Response(JSON.stringify(user ?? {}), {
           headers: corsHeader,
           status: 201,
         });
         return retrievedUser
     } catch (error) {
-      console.error("Error retrieve user:", error);
       return new Response("Failed to retrieve user", { status: 500 });
-    } finally {
-        await disconnectDB()
     }
   }
 
   if (pathname === "/child" && req.method === "POST") {
-      try {
-        const body = await req.json();
-        const { first_name, birthdate, parent_id, sex } = body;
+    try {
+      const body = await req.json();
+      const { first_name, birthdate, parent_id, sex } = body;
 
-        if (!first_name || !birthdate || !parent_id) {
+      if (!first_name || !birthdate || !parent_id) {
+          return new Response("Missing required fields", { status: 400 });
+      }
+
+      const newChild = await createChild(first_name, birthdate, parent_id, sex);
+      return new Response(JSON.stringify(newChild), {
+        headers: corsHeader,
+        status: 201,
+      });
+    } catch (error) {
+      console.error("Error creating child:", error);
+      return new Response("Failed to create child", { status: 500 });
+    }
+  }
+
+  if (pathname === "/child" && req.method === "GET") {
+    const url = new URL(req.url);
+    const parent_id = url.searchParams.get("parent_id");
+      try {
+        if (!parent_id) {
             return new Response("Missing required fields", { status: 400 });
         }
 
-        const newChild = await createChild(first_name, birthdate, parent_id, sex);
-        return new Response(JSON.stringify(newChild), {
+        const retrievedChild = await getChildByParentId(parent_id);
+        return new Response(JSON.stringify(retrievedChild ?? []), {
           headers: corsHeader,
           status: 201,
         });
       } catch (error) {
-        console.error("Error creating child:", error);
+        console.error("Error retrieving children:", error);
         return new Response("Failed to create child", { status: 500 });
-      } finally {
-        await disconnectDB()
       }
   }
 
@@ -122,17 +136,45 @@ const pathname = url.pathname;
       }
 
       const newChild = await createMeasurement(child_id, date, weight ?? convertedWeight, height ?? convertedHeight);
-      return new Response(JSON.stringify(newChild), {
+      return new Response(JSON.stringify(newChild ?? {}), {
         headers: corsHeader,
         status: 201,
       });
     } catch (error) {
       console.error("Error creating measurement:", error);
       return new Response("Failed to create measurement", { status: 500 });
-    } finally {
-      await disconnectDB()
     }
-}
+  }
+
+  if (pathname === "/weight" && req.method === "POST") {
+    try {
+      const body = await req.json();
+      const { childId } = body;
+      const weightData = await getWeight(childId);
+      return new Response(JSON.stringify(weightData ?? {}), {
+        headers: corsHeader,
+        status: 201,
+      });
+    } catch (error) {
+      console.error("Error fetching weight:", error);
+      return new Response("Failed to fetch weight", { status: 500 });
+    }
+  }
+
+  if (pathname === "/height" && req.method === "POST") {
+    try {
+      const body = await req.json();
+      const { childId } = body;
+      const heightData = await getHeight(childId);
+      return new Response(JSON.stringify(heightData ?? {}), {
+        headers: corsHeader,
+        status: 201,
+      });
+    } catch (error) {
+      console.error("Error fetching height:", error);
+      return new Response("Failed to fetch height", { status: 500 });
+    }
+  }
 
   return new Response("Not Found", { status: 404 });
 };
